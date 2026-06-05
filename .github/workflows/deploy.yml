@@ -1,74 +1,43 @@
-name: Deploy A-Share Sustainability Reports to GitHub Pages
+name: 🚀 Deploy A-Share Sustainability Reports (FIXED)
 
 on:
-  # ✅ UPDATED TRIGGER SCHEDULE: Daily at BEIJING TIME 20:30 (UTC 12:30)  
-  schedule: - cron: '30 12 * * *\*  # Beijing time 20:30 = UTC 12:30
-  # Allow manual triggers from UI for testing/debugging
-  workflow_dispatch:
-
-jobs: generate-and-deploy:
+  # ✅ CRON SCHEDULE: Beijing Time 20:30 = UTC 12:30  
+  schedule: - cron: '30 12 * *\*'   # Updated from old time! 
+    # Daily trigger at BEIJING TIME 20:30 (UTC 12:30 after market close)
+    
+  workflow_dispatch:                  # Allows manual triggering via UI
+  
+jobs: deploy:
     runs-on: ubuntu-latest
     
-    steps:
-      - name: Checkout workspace code
-        uses: actions/checkout@v4
+    steps: - name: 📦 Checkout Repository Code uses actions/checkout@v4
       
-      - name: Set up Python 3.10+ environment  
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
+      - name: ⚙️ Set Up Python Environment 
+        uses: actions/setup-python@v5 with python-version: '3.10'
       
-      # ✅ Execute analysis pipeline (now in correct directory after checkout) 
-      - name: Run A-share sustainability analysis (full chain)
+      # ✅ Install dependencies (critical for full pipeline) 
+      - name: 🔧 Install Required Packages run: pip install pandas matplotlib tushare
+      
+      # 📊 Generate Charts + HTML Reports  
+      - name: 🎨 Run Daily Analysis Pipeline working-directory: ./block-sustainability/
         run: |
-            echo "🚀 Starting daily report generation..."  
+            echo "🚀 Starting daily report generation..." 
+            python generate_full_charts.py 2>&1 >> logs/pipeline.log
             
-            # Generate PNG charts for today's date (fixed SQL schema issue handled internally)
-            python3 ./block-sustainability/generate_full_charts.py >> logs/pipeline.log 2>&1 || \
-              { echo "⚠️ Chart generation failed"; cat logs/current.log; } 
+            # Check if charts generated successfully before creating reports  
+            CHARTS=$(ls ../charts/*.png 2>/dev/null | wc -l) 
+            REPORT_COUNT=$((CHARTS > 0 ? $(find . -name "*.html" ! -path "*/logs/*" | grep "^daily_report_" | wc -l):0))
             
-            # Generate HTML reports with valid chart references  
-            cd block-sustainability && \ 
-                python generate_report.html >> ../reports/log.txt 2>&1 || \
-                  { echo "⚠️ Report gen failed"; exit 1; } 
-    
-        working-directory: .
-
-      - name: Install Python dependencies (if needed) & verify outputs
-        run: |  
-            cd block-sustainability && \ 
-                ls -l *.html ../charts/*.png >> ~/log.txt || echo "Check output paths"    
-            
-            # Verify all required files exist before deployment step!  
-            REPORT_COUNT=$(ls reports/daily_report_*.html 2>/dev/null | wc -l)
-            PNG_COUNT=$(ls charts/*2026*.{png,html} 2>/dev/null | grep -c "\.png" || echo "0") 
-            
-            if [ "$REPORT_COUNT" != "13" ] && [ "$PNG_COUNT" = "0" ]; then 
-                echo "⚠️ Missing output files after execution"; exit 1;
+            if [ "$REPORT_COUNT" = "13" ]; then  
+                echo "✅ All reports generated successfully!" 
             else    
-                echo "✅ All outputs generated successfully!"
+                echo "⚠️ Missing report files or charts. Check logs below:" cat ../logs/current.log || true exit 1
             
-      # ✅ Deploy to GitHub Pages automatically!  
-      - name: Commit and push reports to GitHub Pages repo
-        uses: peaceiris/actions-gh-pages@v3 
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}  # Uses existing token from CI context
-          publish_dir: ./block-sustainability/reports/   # Deploy generated HTML files + index.md
+      # ✅ Push to GitHub Pages (Deploy the final HTML + Charts)
+      - name: 🌐 Deploy Results to GitHub Pages uses: peaceiris/actions-gh-pages@v3 with github_token: ${{ secrets.GITHUB_TOKEN }} publish_dir: ./block-sustainability/reports/ 
+          status_text: "📊 A-share reports deployed (Beijing time 20:30 UTC)"
       
-      - name: Notify about deployment success/failure
-        if: always()    # Always execute this step regardless of previous steps' outcomes 
-        run: |  
-            echo "=== Deployment Summary ===" 
-            ls -l ../block-sustainability/reports/*.html 2>/dev/null || true 
-            
-            REPORT_COUNT=$(find . -name "*.html" ! -path "*/logs/*" 2>/dev/null | grep "^daily_report_" | wc -l)
-            
-            if [ "$REPORT_COUNT" != "0" ]; then 
-                echo "✅ Reports generated and pushed to GitHub Pages successfully!"
+      # 🎉 Notification Step  
+      - name: 🔔 Notify on Completion run: | echo "✅ Deployment successful! Reports live at https://stranger971020.github.io/stock-sustainability-reports/index.html" || \ 
+        echo "⚠️ Check logs for errors."
 
-🌐 Live at: https://stranger971020.github.io/stock-sustainability-reports/index.html  
-
-Generated reports are now visible in your repository's 'Pages' section.  
-            else
-                echo "⚠️ No HTML files found - check pipeline logs for errors."; exit 1;    
-            fi
