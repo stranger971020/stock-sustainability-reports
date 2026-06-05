@@ -1,0 +1,66 @@
+name: Deploy A-Share Sustainability Reports to GitHub Pages
+
+on:
+  # Trigger daily at 09:30 UTC (17:30 Beijing time) after market close
+  schedule:
+    - cron: '30 9 * * *'  
+  # Allow manual triggers from UI for testing/debugging
+  workflow_dispatch:
+
+jobs:
+  generate-and-deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout workspace code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python 3.10+ environment  
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      
+      - name: Install dependencies from requirements.txt
+        run: | 
+            if [ -f "./requirements.txt" ]; then pip install --upgrade pip; fi
+      
+      # ✅ Execute analysis pipeline  
+      - name: Run A-share sustainability analysis (full chain)
+        working-directory: ./block-sustainability/  # Ensure we're in correct dir
+        run: | 
+          echo "🚀 Starting daily report generation..."
+          
+          python generate_full_charts.py >> logs/pipeline.log 2>&1 || \
+            { echo "⚠️ Chart generation failed"; cat logs/pipeline.log; }
+
+      - name: Generate HTML reports (with valid chart references)  
+        working-directory: ./block-sustainability/ 
+        run: |
+          python generate_report.py >> logs/report.log 2>&1 || \
+            { echo "⚠️ Report generation failed"; cat logs/report.log; } 
+        
+      # ✅ Deploy to GitHub Pages automatically!    
+      - name: Commit and push reports to GitHub Pages repo
+        uses: peaceiris/actions-gh-pages@v3 
+        with:  
+          github_token: ${{ secrets.GITHUB_TOKEN }}  # Uses existing token from CI context
+          publish_dir: ./block-sustainability/reports/   # Deploy generated HTML files + index.md
+          
+      - name: Notify about deployment success/failure
+        if: always()    # Always execute this step regardless of previous steps' outcomes 
+        run: |  
+            echo "=== Deployment Summary ===" 
+            ls -l ./block-sustainability/reports/*.html 2>/dev/null || true
+            
+            if [ $? -eq 0 ]; then 
+                cat << EOF
+✅ Reports generated and pushed to GitHub Pages successfully!
+
+🌐 Live at: https://stranger971020.github.io/stock-sustainability-reports/index.html  
+
+Generated reports are now visible in your repository's 'Pages' section.  
+EOF   
+            else 
+                echo "⚠️ No HTML files generated - check pipeline logs for errors."
+                exit 1    # Fail the workflow if generation failed completely
+            fi
