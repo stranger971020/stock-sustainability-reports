@@ -1,43 +1,55 @@
 name: 🚀 Deploy A-Share Sustainability Reports (FIXED)
 
 on:
-  # ✅ CRON SCHEDULE: Beijing Time 20:30 = UTC 12:30  
-  schedule: - cron: '30 12 * *\*'   # Updated from old time! 
-    # Daily trigger at BEIJING TIME 20:30 (UTC 12:30 after market close)
-    
-  workflow_dispatch:                  # Allows manual triggering via UI
-  
-jobs: deploy:
-    runs-on: ubuntu-latest
-    
-    steps: - name: 📦 Checkout Repository Code uses actions/checkout@v4
-      
-      - name: ⚙️ Set Up Python Environment 
-        uses: actions/setup-python@v5 with python-version: '3.10'
-      
-      # ✅ Install dependencies (critical for full pipeline) 
-      - name: 🔧 Install Required Packages run: pip install pandas matplotlib tushare
-      
-      # 📊 Generate Charts + HTML Reports  
-      - name: 🎨 Run Daily Analysis Pipeline working-directory: ./block-sustainability/
-        run: |
-            echo "🚀 Starting daily report generation..." 
-            python generate_full_charts.py 2>&1 >> logs/pipeline.log
-            
-            # Check if charts generated successfully before creating reports  
-            CHARTS=$(ls ../charts/*.png 2>/dev/null | wc -l) 
-            REPORT_COUNT=$((CHARTS > 0 ? $(find . -name "*.html" ! -path "*/logs/*" | grep "^daily_report_" | wc -l):0))
-            
-            if [ "$REPORT_COUNT" = "13" ]; then  
-                echo "✅ All reports generated successfully!" 
-            else    
-                echo "⚠️ Missing report files or charts. Check logs below:" cat ../logs/current.log || true exit 1
-            
-      # ✅ Push to GitHub Pages (Deploy the final HTML + Charts)
-      - name: 🌐 Deploy Results to GitHub Pages uses: peaceiris/actions-gh-pages@v3 with github_token: ${{ secrets.GITHUB_TOKEN }} publish_dir: ./block-sustainability/reports/ 
-          status_text: "📊 A-share reports deployed (Beijing time 20:30 UTC)"
-      
-      # 🎉 Notification Step  
-      - name: 🔔 Notify on Completion run: | echo "✅ Deployment successful! Reports live at https://stranger971020.github.io/stock-sustainability-reports/index.html" || \ 
-        echo "⚠️ Check logs for errors."
+  schedule:
+    - cron: '30 12 * * *'   # UTC 12:30 = Beijing 20:30
+  workflow_dispatch:        # Allow manual trigger
 
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📦 Checkout Repository Code
+        uses: actions/checkout@v4
+
+      - name: ⚙️ Set Up Python Environment
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: 🔧 Install Required Packages
+        run: pip install pandas matplotlib tushare
+
+      - name: 🎨 Run Daily Analysis Pipeline
+        working-directory: ./block-sustainability/
+        run: |
+          echo "🚀 Starting daily report generation..."
+          python generate_full_charts.py 2>&1 | tee -a logs/pipeline.log
+
+          # Check if charts generated successfully
+          CHARTS=$(ls ../charts/*.png 2>/dev/null | wc -l)
+          if [ "$CHARTS" -eq 0 ]; then
+            echo "❌ No charts generated, aborting."
+            exit 1
+          fi
+
+          REPORT_COUNT=$(find . -name "daily_report_*.html" 2>/dev/null | wc -l)
+          if [ "$REPORT_COUNT" -eq 13 ]; then
+            echo "✅ All reports generated successfully!"
+          else
+            echo "⚠️ Missing report files. Found $REPORT_COUNT/13 reports."
+            exit 1
+          fi
+
+      - name: 🌐 Deploy Results to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./block-sustainability/reports/
+          keep_files: false
+          commit_message: "📊 A-share reports deployed (Beijing time 20:30 UTC)"
+
+      - name: 🔔 Notify on Completion
+        run: |
+          echo "✅ Deployment successful! Reports live at https://stranger971020.github.io/stock-sustainability-reports/index.html"
